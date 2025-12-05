@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Login</title>
 
+  <!-- Optional: set your API base here so this static page knows where to send the login request.
+       Example: <meta name="api-base" content="https://api.example.com"> -->
+
   <style>
     body {
       background: #111;
@@ -76,20 +79,112 @@
     <label for="password">Password</label>
     <input id="password" type="password" placeholder="Enter your password" />
 
-    <button onclick="handleLogin()">Login</button>
+    <button id="loginBtn">Login</button>
   </div>
 
   <script>
-    function handleLogin() {
-      const username = document.getElementById("username").value;
-      const password = document.getElementById("password").value;
+    (function () {
+      const ACCESS_COOKIE = 'ACCESS_TOKEN';
 
-      // Add your backend connection later
-      console.log("Username:", username);
-      console.log("Password:", password);
+      function getApiBase() {
+        // Priority: window.API_BASE -> meta[name="api-base"] -> empty string (same origin)
+        if (window.API_BASE) return String(window.API_BASE);
+        const meta = document.querySelector('meta[name="api-base"]');
+        if (meta && meta.content) return String(meta.content);
+        return ''; // will result in relative "/login"
+      }
 
-      alert("Login clicked!");
-    }
+      function setCookie(name, value, days) {
+        let cookie = name + '=' + encodeURIComponent(value) + '; path=/';
+        if (typeof days === 'number') {
+          const d = new Date();
+          d.setTime(d.getTime() + days * 24 * 60 * 60 * 1000);
+          cookie += '; expires=' + d.toUTCString();
+        }
+        // Note: secure and HttpOnly cannot be set from JS. Use server-set cookies for httpOnly.
+        document.cookie = cookie;
+      }
+
+      function getCookie(name) {
+        const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+        return match ? decodeURIComponent(match[2]) : null;
+      }
+
+      function parseJsonSafe(res) {
+        return res.json().catch(() => ({}));
+      }
+
+      async function handleLogin() {
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+
+        if (!username || !password) {
+          alert('Please enter username and password.');
+          return;
+        }
+
+        try {
+          const base = getApiBase().replace(/\/$/, '');
+          const url = (base ? base + '/login' : '/login');
+
+          const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+
+          const data = await parseJsonSafe(res);
+
+          if (!res.ok) {
+            console.error('Login failed', res.status, data);
+            alert(data.message || ('Login failed: ' + res.status));
+            return;
+          }
+
+          const token = data.access_token || data.token || data.accessToken;
+          if (!token) {
+            console.error('No token returned', data);
+            alert(data.message || 'Login succeeded but no token returned');
+            return;
+          }
+
+          // store token in a cookie (readable by JS) and localStorage for convenience
+          try { setCookie(ACCESS_COOKIE, token, 7); } catch (e) { /* ignore */ }
+          try { localStorage.setItem(ACCESS_COOKIE, token); } catch (e) { /* ignore */ }
+
+          // helper for authenticated fetches
+          window.authFetch = function (input, options = {}) {
+            const tokenFromStorage = localStorage.getItem(ACCESS_COOKIE) || getCookie(ACCESS_COOKIE);
+            options.headers = Object.assign({}, options.headers, {
+              'Authorization': 'Bearer ' + tokenFromStorage
+            });
+            return fetch(input, options);
+          };
+
+          // redirect to app start page
+          window.location.href = '/start';
+        } catch (err) {
+          console.error('Login error', err);
+          alert('Network or unknown error, see console');
+        }
+      }
+
+      // Attach click handler
+      document.getElementById('loginBtn').addEventListener('click', handleLogin);
+
+      // initialize authFetch if token already stored
+      (function initAuthFetch() {
+        const token = localStorage.getItem(ACCESS_COOKIE) || getCookie(ACCESS_COOKIE);
+        if (token) {
+          window.authFetch = function (input, options = {}) {
+            options.headers = Object.assign({}, options.headers, {
+              'Authorization': 'Bearer ' + token
+            });
+            return fetch(input, options);
+          };
+        }
+      })();
+    })();
   </script>
 </body>
 </html>
