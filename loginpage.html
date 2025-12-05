@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login</title>
+
+  <style>
+    body {
+      background: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    .login-container {
+      background: #1c1c1c;
+      padding: 30px;
+      width: 320px;
+      border-radius: 12px;
+      box-shadow: 0 0 15px rgba(255, 0, 0, 0.3);
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 20px;
+      color: #ff0000;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 5px;
+      font-weight: bold;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      margin-bottom: 10px;
+      background: #fff;
+      color: #000;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #ff0000;
+      border: none;
+      color: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 10px;
+      font-size: 16px;
+      font-weight: bold;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="login-container">
+    <h2>Login</h2>
+
+    <label for="username">Username</label>
+    <input id="username" type="text" placeholder="Enter your username" />
+
+    <label for="password">Password</label>
+    <input id="password" type="password" placeholder="Enter your password" />
+
+    <button onclick="handleLogin()">Login</button>
+  </div>
+
+  <script>
+    function handleLogin() {
+      const username = document.getElementById("username").value;
+      const password = document.getElementById("password").value;
+
+      // Add your backend connection later
+      console.log("Username:", username);
+      console.log("Password:", password);
+
+      alert("Login clicked!");
+    }
+  </script>
+</body>
+</html>
