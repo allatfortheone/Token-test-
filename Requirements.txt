@@ -1,1 +1,8 @@
-flask
+Flask>=2.0,<3.0
+Flask-JWT-Extended>=4.4
+Flask-Migrate>=4.0
+Flask-Cors>=3.0
+Flask-SQLAlchemy>=3.0
+PyMySQL>=1.0
+# Optional: if you prefer the native mysqlclient instead of PyMySQL, replace PyMySQL with:
+# mysqlclient>=2.0
