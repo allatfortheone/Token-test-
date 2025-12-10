@@ -1,140 +1,77 @@
-from sqlalchemy import Index
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy_serializer import SerializerMixin
-from werkzeug.security import check_password_hash, generate_password_hash
-from flask_login import UserMixin
-import enum
+# (top-of-file imports, keep everything you already have here)
+import os
+import json
+import logging
+from datetime import timedelta
+from flask import request
+from flask_cors import CORS
+from flask_migrate import Migrate
+from flask_jwt_extended import JWTManager
 
-db = SQLAlchemy()
+# Import the db and model classes from models.py BEFORE initializing extensions.
+# This ensures the same SQLAlchemy instance is used and that migrations see all models.
+from models import db, User, PitScout, Schedule, RobotMatch, Scoring, Team
 
-class User(db.Model, SerializerMixin, UserMixin):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    password = db.Column(db.String(255), nullable=False)
-    scouter_id = db.Column(db.Integer, nullable=False, index=True, unique=True)
+# (rest of your existing app setup)
+# app = Flask(__name__)  <-- keep your existing app instantiation
+cfg = {}
+config_path = os.getenv("APP_CONFIG_PATH", "config.json")
+if os.path.exists(config_path):
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            cfg = json.load(fh) or {}
+            logger.info("Loaded configuration from %s", config_path)
+    except Exception as e:
+        logger.exception("Failed to load config.json: %s", e)
 
-    def check_password(self, password):
-        return check_password_hash(self.password, password)
-
-    def __init__(self, name, password, scouter_id):
-        self.name = name
-        self.password = generate_password_hash(password)
-        self.scouter_id = scouter_id
-
-
-class PitScout(db.Model, SerializerMixin):
-    __tablename__ = 'pit_scout'
-
-    id = db.Column(db.Integer, primary_key=True, index=True)
-    team_number = db.Column(db.Integer) #, db.ForeignKey('team.team_number'))
-    robot_height = db.Column(db.Integer)
-    robot_dimensions = db.Column(db.String(20))  # Changed to String
-    focus_amp = db.Column(db.Boolean)
-    can_speaker = db.Column(db.Boolean)
-    can_amp = db.Column(db.Boolean)
-    ground_pickup = db.Column(db.Boolean)
-    source_pickup = db.Column(db.Boolean)
-    drive_train = db.Column(db.String(20))
-    can_climb = db.Column(db.Boolean)
-    can_harmony = db.Column(db.Boolean)
-    driver_experience = db.Column(db.Integer)
-    can_trap = db.Column(db.Boolean)
-    event_code = db.Column(db.String(20))
-    scouter_id = db.Column(db.Integer, db.ForeignKey('user.scouter_id'))
-
-    # team = db.relationship('Team')
-    scouter = db.relationship('User')
-
-    # Define composite unique index
-    __table_args__ = (
-        Index('idx_unique_scoring', 'team_number', 'scouter_id', unique=True),
+# Secret key for JWT: prefer env var -> config file -> generated (dev only)
+jwt_secret = os.getenv("JWT_SECRET_KEY") or cfg.get("JWT_SECRET_KEY")
+if not jwt_secret:
+    # WARNING: generated secret will invalidate tokens on restart. Use env or config in production.
+    jwt_secret = os.getenv("FLASK_SECRET_KEY") or os.urandom(24).hex()
+    logger.warning(
+        "No JWT_SECRET_KEY found in env or config.json. Using a generated secret (NOT for production)."
     )
 
+# Database URI: environment takes precedence (useful for deployments)
+default_db_user = cfg.get("db_user", "root")
+default_db_password = cfg.get("db_password", "")
+default_db_host = cfg.get("db_host", "127.0.0.1")
+default_db_database = cfg.get("db_database", "testdb")
+database_url = os.getenv(
+    "DATABASE_URL",
+    f"mysql://{default_db_user}:{default_db_password}@{default_db_host}/{default_db_database}",
+)
 
-class Schedule(db.Model, SerializerMixin):
-    __tablename__ = 'schedule'
+# CORS origins: allow specific origins via env or config, fallback to all for dev
+cors_origins = os.getenv("CORS_ORIGINS") or cfg.get("cors_origins", "*")
 
-    id = db.Column(db.Integer, primary_key=True)
-    team_number = db.Column(db.Integer) #, db.ForeignKey('team.team_number'))
-    match_number = db.Column(db.Integer)
-    drive_station = db.Column(db.Integer, nullable=True)
-    alliance_color = db.Column(db.Enum('red', 'blue'), nullable=True)
-    event_code = db.Column(db.String(20))
-    date = db.Column(db.DateTime)  # Consider including the date mm-dd-yy or dates of the competition
+# Put main config into app.config
+app.config.update(
+    JWT_SECRET_KEY=jwt_secret,
+    JWT_ACCESS_TOKEN_EXPIRES=timedelta(days=3),
+    SQLALCHEMY_DATABASE_URI=database_url,
+    SQLALCHEMY_TRACK_MODIFICATIONS=False,
+    JSONIFY_PRETTYPRINT_REGULAR=False,
+)
 
-    # team = db.relationship('Team')
+# Initialize extensions (db comes from models)
+db.init_app(app)
+migrate = Migrate(app, db)
+jwt = JWTManager(app)
 
-    # Define composite unique index
-    __table_args__ = (
-        Index('idx_unique_scoring', 'team_number', 'match_number', unique=True),
-    )
+# ---------------- JWT callbacks -----------------
+@jwt.user_identity_loader
+def user_identity_lookup(user):
+    # When create_access_token(identity=user) is called, store the user's id as sub.
+    return user.id
 
+@jwt.user_lookup_loader
+def user_lookup_callback(_jwt_header, jwt_data):
+    # Load user object for current_user
+    identity = jwt_data.get("sub")
+    if identity is None:
+        return None
+    return User.query.filter_by(id=identity).one_or_none()
 
-class RobotMatch(db.Model, SerializerMixin):
-    __tablename__ = 'robot_match'
-
-    id = db.Column(db.Integer, primary_key=True)
-    team_number = db.Column(db.Integer) #, db.ForeignKey('team.team_number'))
-    match_number = db.Column(db.Integer)
-    # left_alliance_zone = db.Column(db.Boolean, nullable=True)
-    # auto_ground_pickups = db.Column(db.Integer, nullable=True)
-    # teleop_
-    ground_pickups = db.Column(db.Integer, nullable=True)
-    source_pickups = db.Column(db.Integer, nullable=True)
-    endgame_park = db.Column(db.Boolean, nullable=True)
-    endgame_climb = db.Column(db.Boolean, nullable=True)
-    endgame_harmony = db.Column(db.Boolean, nullable=True)
-    endgame_trap = db.Column(db.Boolean, nullable=True)
-    coopertition_bonus = db.Column(db.Boolean, nullable=True)
-    robot_type = db.Column(db.String(20))
-    match_start_time = db.Column(db.DateTime)
-    scouter_id = db.Column(db.Integer, db.ForeignKey('user.scouter_id'))
-
-    # team = db.relationship('Team')
-    scouter = db.relationship('User')
-
-    # Define composite unique index
-    __table_args__ = (
-        Index('idx_unique_scoring', 'team_number', 'match_number', 'scouter_id', 'match_start_time', unique=True),
-    )
-
-
-class Scoring(db.Model, SerializerMixin):
-    __tablename__ = 'scoring'
-
-    id = db.Column(db.Integer, primary_key=True)
-    team_number = db.Column(db.Integer)
-    match_number = db.Column(db.Integer)
-    game_phase = db.Column(db.Boolean, nullable=True)
-    success_fail = db.Column(db.Integer, nullable=True)
-    shot_in_speaker = db.Column(db.Boolean, nullable=True)
-    # shot_in_wing = db.Column(db.Boolean, nullable=True)
-    shot_x_position = db.Column(db.Float, nullable=True) 
-    shot_y_position = db.Column(db.Float, nullable=True)
-    is_amplified = db.Column(db.Boolean, nullable=True)
-    score_occurence_time = db.Column(db.DateTime, nullable=False)
-    scouter_id = db.Column(db.Integer, db.ForeignKey('user.scouter_id'))
-
-    # team = db.relationship('Team')
-    scouter = db.relationship('User')
-
-    # Define composite unique index
-    __table_args__ = (
-        Index('idx_unique_scoring', 'team_number', 'match_number', 'shot_x_position', 'score_occurence_time', unique=True),
-    )
-
-
-class Team(db.Model, SerializerMixin):
-    __tablename__ = 'team'
-
-    team_number = db.Column(db.Integer, primary_key=True)
-    name_full = db.Column(db.String(511))
-    name_short = db.Column(db.String(100))
-    city = db.Column(db.String(100))
-    state_prov = db.Column(db.String(50))
-    country = db.Column(db.String(50))
-    rookie_year = db.Column(db.Integer)
-    robot_name = db.Column(db.String(100))
-    district_code = db.Column(db.String(20))
-    school_name = db.Column(db.String(255))
-    website = db.Column(db.String(255))
+# ... rest of app.py unchanged ...
